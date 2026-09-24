@@ -1,0 +1,31 @@
+# Training artifacts, datasets, and local runtimes are not part of this repo.
+# Anchor these to the repo root so source trees named data/ are still included.
+/chpt/
+/data/
+/logs/
+/.cache/
+/backups*/
+/doc/
+/download_packages/
+/pretrain_model/
+/python_packages_lang/
+env_cfg/wandb.env
+
+# Other XPolicyLab policies live in the local bench checkout only.
+Xpolicylab/policy/*
+!Xpolicylab/policy/RDT_1B/
+
+# RDT weights, checkpoints, and generated embeddings.
+Xpolicylab/policy/RDT_1B/checkpoints/
+Xpolicylab/policy/RDT_1B/checkpoints_*/
+Xpolicylab/policy/RDT_1B/weights/
+Xpolicylab/policy/RDT_1B/data/
+Xpolicylab/policy/RDT_1B/lang_embeds/
+Xpolicylab/policy/RDT_1B/lang_embeds_*/
+Xpolicylab/policy/RDT_1B/rdt/wandb/
+Xpolicylab/policy/RDT_1B/runs/
+
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
