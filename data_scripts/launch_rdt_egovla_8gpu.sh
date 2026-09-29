@@ -3,14 +3,14 @@ set -euo pipefail
 
 # Fresh 8-GPU RDT-1B fine-tune for the validated EgoVLA canonical conversion.
 # The W&B API key is intentionally required at runtime and is never stored here.
-WORKSPACE="${RDT_EGOVLA_WORKSPACE:-/personal/xiangpc/0812_Xpolicylab_bench/RDT-1B}"
+WORKSPACE="${RDT_EGOVLA_WORKSPACE:-/vepfs-cnbje63de6fae220/xiangpc/0812_Xpolicylab_bench/RDT_1B_Xpolicylab}"
 ADAPTER="${WORKSPACE}/Xpolicylab/policy/RDT_1B"
-STAGE_ROOT="${RDT_EGOVLA_STAGE_ROOT:-${WORKSPACE}/data/EgoVLA_rdt38}"
+STAGE_ROOT="${RDT_EGOVLA_STAGE_ROOT:-${WORKSPACE}/data/EgoVLA_rdt38_v2}"
 DATA_TAG="EgoVLA_benchmark-cotrain-ego_h1_inspire-joint"
 DATA_DIR="${ADAPTER}/data/${DATA_TAG}"
 LANG_ROOT="${ADAPTER}/lang_embeds"
 STATS_PATH="${RDT_EGOVLA_STATS_PATH:-${STAGE_ROOT}/dataset_stat.json}"
-OUTPUT_DIR="${RDT_EGOVLA_OUTPUT_DIR:-${WORKSPACE}/chpt/20260902_egovla_joint38_bs64_s42_80k}"
+OUTPUT_DIR="${RDT_EGOVLA_OUTPUT_DIR:-${WORKSPACE}/chpt/rdt_egovla_joint38_bs64_s42_80k}"
 OFFICIAL_OUTPUT="${ADAPTER}/checkpoints/${DATA_TAG}-42"
 GPU_IDS="${RDT_GPU_IDS:-0,1,2,3,4,5,6,7}"
 
@@ -41,15 +41,15 @@ bash "${WORKSPACE}/Xpolicylab/utils/get_action_dim.sh" "${WORKSPACE}" ego_h1_ins
   grep -qx '38' || die "ego_h1_inspire action dimension is not 38"
 
 MANIFEST_CHECK="$(
-  "${RDT_EGOVLA_PYTHON:-/personal/miniconda3/envs/rdt_1b/bin/python}" - "${STAGE_ROOT}/conversion_manifest.json" <<'PY'
+  "${RDT_EGOVLA_PYTHON:-/vepfs-cnbje63de6fae220/xiangpc/conda_envs/FTP_1/bin/python}" - "${STAGE_ROOT}/conversion_manifest.json" <<'PY'
 import json
 import sys
 from pathlib import Path
 m = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 if m.get("episode_count") != 1903:
     raise SystemExit(f"episode_count={m.get('episode_count')}")
-if m.get("raw_inventory", {}).get("deprecated_episode_count") != 100:
-    raise SystemExit("deprecated inventory is not 100")
+if m.get("raw_inventory", {}).get("deprecated_episode_count") != 0:
+    raise SystemExit("raw root is expected to be the remove_deprecated tree")
 if m.get("action_dim") != 38 or m.get("state_token_dim") != 128:
     raise SystemExit("dimension contract mismatch")
 print("ok")
@@ -71,7 +71,7 @@ embed_count="$(find -L "${LANG_ROOT}/${DATA_TAG}" -type f -path '*/ego_h1_inspir
 [[ -s "${LANG_ROOT}/empty_lang_embed.pt" ]] || die "missing empty_lang_embed.pt"
 
 [[ -f "${STATS_PATH}" ]] || die "missing EgoVLA dataset statistics: ${STATS_PATH}"
-"${RDT_EGOVLA_PYTHON:-/personal/miniconda3/envs/rdt_1b/bin/python}" - "${STATS_PATH}" <<'PY'
+"${RDT_EGOVLA_PYTHON:-/vepfs-cnbje63de6fae220/xiangpc/conda_envs/FTP_1/bin/python}" - "${STATS_PATH}" <<'PY'
 import json
 import math
 import sys
@@ -129,7 +129,7 @@ if [[ ! -e "${OFFICIAL_OUTPUT}" && ! -L "${OFFICIAL_OUTPUT}" ]]; then
 fi
 
 # Explicit model paths avoid the repository's small placeholder weight links.
-export PATH="/personal/miniconda3/envs/rdt_1b/bin:${PATH}"
+export PATH="/vepfs-cnbje63de6fae220/xiangpc/conda_envs/FTP_1/bin:${PATH}"
 export TEXT_ENCODER_NAME="${WORKSPACE}/pretrain_model/t5-v1_1-xxl"
 export VISION_ENCODER_NAME="${WORKSPACE}/pretrain_model/siglip-so400m-patch14-384"
 export RDT_PRETRAINED_MODEL="${WORKSPACE}/pretrain_model/rdt-1b"
@@ -138,29 +138,35 @@ export RDT_LANG_EMBED_DIR="${LANG_ROOT}"
 export RDT_DATASET_NAME="egovla_h1_hdf5"
 export RDT_DATASET_STAT_PATH="${STATS_PATH}"
 export RDT_DROP_SHORT_EPISODES=0
-export RDT_TRAIN_BATCH_SIZE=8
-export RDT_SAMPLE_BATCH_SIZE=8
-export RDT_MAX_TRAIN_STEPS=80000
-export RDT_CHECKPOINTING_PERIOD=10000
+export RDT_TRAIN_BATCH_SIZE="${RDT_TRAIN_BATCH_SIZE:-8}"
+export RDT_SAMPLE_BATCH_SIZE="${RDT_SAMPLE_BATCH_SIZE:-8}"
+export RDT_MAX_TRAIN_STEPS="${RDT_MAX_TRAIN_STEPS:-80000}"
+export RDT_CHECKPOINTING_PERIOD="${RDT_CHECKPOINTING_PERIOD:-10000}"
 export RDT_SAMPLE_PERIOD="${RDT_SAMPLE_PERIOD:-0}"
 export RDT_CHECKPOINTS_TOTAL_LIMIT=40
 export RDT_DATALOADER_NUM_WORKERS="${RDT_DATALOADER_NUM_WORKERS:-4}"
 export RDT_RESUME_FROM_CHECKPOINT=""
+export RDT_LAUNCHER="${RDT_LAUNCHER:-torchrun}"
 export RDT_REPORT_TO="${RDT_REPORT_TO:-wandb}"
 export WANDB_PROJECT="${WANDB_PROJECT:-xpolicylab-0812-bench}"
 export WANDB_NAME="${WANDB_NAME:-RDT_1B_EgoVLA_joint38_bs64_s42_80k_20260902}"
-export http_proxy="${http_proxy:-http://192.168.16.76:18000}"
-export https_proxy="${https_proxy:-http://192.168.16.76:18000}"
+# The host can reach W&B directly.  Do not inject the stale cluster proxy unless explicitly requested.
+if [[ "${RDT_ENABLE_PROXY:-0}" == "1" ]]; then
+  export http_proxy="${RDT_HTTP_PROXY:-http://192.168.16.76:18000}"
+  export https_proxy="${RDT_HTTPS_PROXY:-http://192.168.16.76:18000}"
+else
+  unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy
+fi
 export HDF5_USE_FILE_LOCKING="${HDF5_USE_FILE_LOCKING:-FALSE}"
 export TOKENIZERS_PARALLELISM=false
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
 
-echo "[RDT-1B][EgoVLA] stage=${STAGE_ROOT} episodes=1903 deprecated_excluded=100"
+echo "[RDT-1B][EgoVLA] stage=${STAGE_ROOT} episodes=1903 deprecated_excluded=0"
 echo "[RDT-1B][EgoVLA] data_tag=${DATA_TAG} dataset=egovla_h1_hdf5"
 echo "[RDT-1B][EgoVLA] raw_action_dim=38 mapped_state_tokens=128 ctrl_freq=30"
 echo "[RDT-1B][EgoVLA] train_batch_per_gpu=8 sample_batch_per_gpu=8 global_batch=64"
-echo "[RDT-1B][EgoVLA] max_steps=80000 checkpoint_period=10000 sample_period=${RDT_SAMPLE_PERIOD}"
+echo "[RDT-1B][EgoVLA] max_steps=${RDT_MAX_TRAIN_STEPS} checkpoint_period=${RDT_CHECKPOINTING_PERIOD} sample_period=${RDT_SAMPLE_PERIOD}"
 echo "[RDT-1B][EgoVLA] output=${OUTPUT_DIR}"
 echo "[RDT-1B][EgoVLA] WANDB_PROJECT=${WANDB_PROJECT} WANDB_NAME=${WANDB_NAME} WANDB_API_KEY=present"
 echo "[RDT-1B][EgoVLA] launching 8 ranks on CUDA_VISIBLE_DEVICES=${GPU_IDS}"
